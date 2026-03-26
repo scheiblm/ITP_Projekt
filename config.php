@@ -51,7 +51,6 @@ function initializeSchema(PDO $pdo): void
             nachname VARCHAR(120) NOT NULL,
             strasse VARCHAR(120) NOT NULL,
             hausnummer VARCHAR(20) NOT NULL,
-            erledigt TINYINT(1) NOT NULL DEFAULT 0,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_patient_ort FOREIGN KEY (ort_id) REFERENCES ort(id) ON DELETE SET NULL,
             CONSTRAINT fk_patient_arzt FOREIGN KEY (arzt_id) REFERENCES arzt(id) ON DELETE RESTRICT
@@ -74,11 +73,34 @@ function initializeSchema(PDO $pdo): void
             arzt_id INT NOT NULL,
             datum DATE NOT NULL,
             kostentraeger ENUM("krankenkasse", "selbstzahler") NOT NULL,
+            erledigt TINYINT(1) NOT NULL DEFAULT 0,
             CONSTRAINT fk_pl_patient FOREIGN KEY (patient_id) REFERENCES patient(id) ON DELETE CASCADE,
             CONSTRAINT fk_pl_leistung FOREIGN KEY (leistung_id) REFERENCES leistung(id) ON DELETE RESTRICT,
             CONSTRAINT fk_pl_arzt FOREIGN KEY (arzt_id) REFERENCES arzt(id) ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
+
+    // Kleines Schema-Migrations-Handling für bestehende Installationen.
+    if (!columnExists($pdo, 'patient_leistung', 'erledigt')) {
+        $pdo->exec('ALTER TABLE patient_leistung ADD COLUMN erledigt TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (columnExists($pdo, 'patient', 'erledigt')) {
+        $pdo->exec('ALTER TABLE patient DROP COLUMN erledigt');
+    }
+}
+
+function columnExists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name AND COLUMN_NAME = :column_name'
+    );
+    $stmt->execute([
+        'table_name' => $table,
+        'column_name' => $column,
+    ]);
+
+    return (int) $stmt->fetchColumn() > 0;
 }
 
 function sessionUser(): ?array

@@ -99,18 +99,30 @@ if ($user && isset($_POST['action'])) {
                     $ortId = (int) $pdo->lastInsertId();
                 }
 
-                $stmt = $pdo->prepare('INSERT INTO patient (ort_id, arzt_id, vorname, nachname, strasse, hausnummer, erledigt) VALUES (:ort_id, :arzt_id, :vorname, :nachname, :strasse, :hausnummer, 0)');
+                $stmt = $pdo->prepare('SELECT id FROM patient WHERE vorname = :vorname AND nachname = :nachname AND strasse = :strasse AND hausnummer = :hausnummer AND ort_id = :ort_id LIMIT 1');
                 $stmt->execute([
-                    'ort_id' => $ortId,
-                    'arzt_id' => $user['id'],
                     'vorname' => $vorname,
                     'nachname' => $nachname,
                     'strasse' => $strasse,
                     'hausnummer' => $hausnummer,
+                    'ort_id' => $ortId,
                 ]);
+                $patientId = (int) $stmt->fetchColumn();
 
-                $patientId = (int) $pdo->lastInsertId();
-                $stmt = $pdo->prepare('INSERT INTO patient_leistung (patient_id, leistung_id, arzt_id, datum, kostentraeger) VALUES (:patient_id, :leistung_id, :arzt_id, :datum, :kostentraeger)');
+                if ($patientId <= 0) {
+                    $stmt = $pdo->prepare('INSERT INTO patient (ort_id, arzt_id, vorname, nachname, strasse, hausnummer) VALUES (:ort_id, :arzt_id, :vorname, :nachname, :strasse, :hausnummer)');
+                    $stmt->execute([
+                        'ort_id' => $ortId,
+                        'arzt_id' => $user['id'],
+                        'vorname' => $vorname,
+                        'nachname' => $nachname,
+                        'strasse' => $strasse,
+                        'hausnummer' => $hausnummer,
+                    ]);
+                    $patientId = (int) $pdo->lastInsertId();
+                }
+
+                $stmt = $pdo->prepare('INSERT INTO patient_leistung (patient_id, leistung_id, arzt_id, datum, kostentraeger, erledigt) VALUES (:patient_id, :leistung_id, :arzt_id, :datum, :kostentraeger, 0)');
                 $stmt->execute([
                     'patient_id' => $patientId,
                     'leistung_id' => $leistungId,
@@ -130,8 +142,8 @@ if ($user && isset($_POST['action'])) {
 
         case 'mark_done':
             $patientId = (int) ($_POST['patient_id'] ?? 0);
-            $stmt = $pdo->prepare('UPDATE patient SET erledigt = 1 WHERE id = :id AND arzt_id = :arzt_id');
-            $stmt->execute(['id' => $patientId, 'arzt_id' => $user['id']]);
+            $stmt = $pdo->prepare('UPDATE patient_leistung SET erledigt = 1 WHERE patient_id = :patient_id AND arzt_id = :arzt_id AND erledigt = 0');
+            $stmt->execute(['patient_id' => $patientId, 'arzt_id' => $user['id']]);
             $messages[] = 'Patient wurde als erledigt markiert.';
             $activeTab = 'offen';
             break;
@@ -139,9 +151,9 @@ if ($user && isset($_POST['action'])) {
         case 'transfer_patient':
             $patientId = (int) ($_POST['patient_id'] ?? 0);
             $newDoctorId = (int) ($_POST['new_arzt_id'] ?? 0);
-            $stmt = $pdo->prepare('UPDATE patient SET arzt_id = :new_arzt_id WHERE id = :id AND erledigt = 0');
+            $stmt = $pdo->prepare('UPDATE patient_leistung SET arzt_id = :new_arzt_id WHERE patient_id = :id AND erledigt = 0');
             $stmt->execute(['new_arzt_id' => $newDoctorId, 'id' => $patientId]);
-            $messages[] = 'Patient wurde verschoben.';
+            $messages[] = 'Offene Leistungen wurden verschoben.';
             $activeTab = 'suche';
             break;
 
@@ -155,10 +167,10 @@ if ($user && isset($_POST['action'])) {
             }
 
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $sql = "UPDATE patient SET arzt_id = ? WHERE erledigt = 0 AND id IN ($placeholders)";
+            $sql = "UPDATE patient_leistung SET arzt_id = ? WHERE erledigt = 0 AND patient_id IN ($placeholders)";
             $stmt = $pdo->prepare($sql);
             $stmt->execute(array_merge([$newDoctorId], $ids));
-            $messages[] = 'Offene Patienteneinträge wurden verschoben.';
+            $messages[] = 'Offene Leistungen wurden zum gewählten Arzt verschoben.';
             $activeTab = 'suche';
             break;
     }
@@ -213,55 +225,42 @@ if (!$user) {
 
 $doctors = $pdo->query('SELECT id, name FROM arzt ORDER BY name')->fetchAll();
 $services = $pdo->query('SELECT * FROM leistung ORDER BY bezeichnung')->fetchAll();
-$offenePatientenStmt = $pdo->prepare('SELECT p.*, o.plz, o.ort FROM patient p LEFT JOIN ort o ON o.id = p.ort_id WHERE p.arzt_id = :arzt_id AND p.erledigt = 0 ORDER BY p.nachname, p.vorname');
+$offenePatientenStmt = $pdo->prepare('SELECT p.*, o.plz, o.ort
+    FROM patient p
+    LEFT JOIN ort o ON o.id = p.ort_id
+    WHERE EXISTS (
+        SELECT 1 FROM patient_leistung pl
+        WHERE pl.patient_id = p.id AND pl.arzt_id = :arzt_id AND pl.erledigt = 0
+    )
+    ORDER BY p.nachname, p.vorname');
 $offenePatientenStmt->execute(['arzt_id' => $user['id']]);
 $offenePatienten = $offenePatientenStmt->fetchAll();
 
 $search = trim($_GET['q'] ?? '');
-$searchSql = 'SELECT p.*, o.plz, o.ort, a.name AS arzt_name FROM patient p
-LEFT JOIN ort o ON o.id = p.ort_id
-LEFT JOIN arzt a ON a.id = p.arzt_id';
+$searchSql = 'SELECT p.*, o.plz, o.ort FROM patient p
+LEFT JOIN ort o ON o.id = p.ort_id';
 $params = [];
 if ($search !== '') {
     $searchSql .= ' WHERE p.vorname LIKE :q OR p.nachname LIKE :q';
     $params['q'] = '%' . $search . '%';
 }
-$searchSql .= ' ORDER BY p.erledigt DESC, p.nachname';
+$searchSql .= ' ORDER BY p.nachname, p.vorname';
 $stmt = $pdo->prepare($searchSql);
 $stmt->execute($params);
 $searchPatients = $stmt->fetchAll();
 
 $groupedPatients = [];
 foreach ($searchPatients as $patient) {
-    $key = strtolower(trim($patient['vorname'])) . '|' .
-        strtolower(trim($patient['nachname'])) . '|' .
-        strtolower(trim((string) $patient['strasse'])) . '|' .
-        strtolower(trim((string) $patient['hausnummer'])) . '|' .
-        strtolower(trim((string) $patient['plz'])) . '|' .
-        strtolower(trim((string) $patient['ort']));
-
-    if (!isset($groupedPatients[$key])) {
-        $groupedPatients[$key] = [
-            'vorname' => $patient['vorname'],
-            'nachname' => $patient['nachname'],
-            'arzt_name' => $patient['arzt_name'],
-            'arzt_id' => (int) $patient['arzt_id'],
-            'all_done' => true,
-            'patient_ids' => [],
-            'open_patient_ids' => [],
-        ];
-    }
-
-    $groupedPatients[$key]['patient_ids'][] = (int) $patient['id'];
-
-    if ((int) $patient['erledigt'] === 0) {
-        $groupedPatients[$key]['all_done'] = false;
-        $groupedPatients[$key]['open_patient_ids'][] = (int) $patient['id'];
-    }
-
-    if ((int) $groupedPatients[$key]['arzt_id'] !== (int) $patient['arzt_id']) {
-        $groupedPatients[$key]['arzt_name'] = 'Mehrere Ärzte';
-    }
+    $key = (string) $patient['id'];
+    $groupedPatients[$key] = [
+        'vorname' => $patient['vorname'],
+        'nachname' => $patient['nachname'],
+        'arzt_name' => '',
+        'arzt_id' => 0,
+        'all_done' => true,
+        'patient_ids' => [(int) $patient['id']],
+        'open_patient_ids' => [(int) $patient['id']],
+    ];
 }
 
 $patientDetailsByGroup = [];
@@ -273,7 +272,7 @@ if ($groupedPatients) {
     $allIds = array_values(array_unique($allIds));
     if ($allIds) {
         $placeholders = implode(',', array_fill(0, count($allIds), '?'));
-        $sql = "SELECT pl.patient_id, l.bezeichnung, l.preis, pl.kostentraeger, pl.datum, a.name AS arzt_name
+        $sql = "SELECT pl.patient_id, pl.arzt_id, pl.erledigt, l.bezeichnung, l.preis, pl.kostentraeger, pl.datum, a.name AS arzt_name
                 FROM patient_leistung pl
                 JOIN leistung l ON l.id = pl.leistung_id
                 JOIN arzt a ON a.id = pl.arzt_id
@@ -285,10 +284,39 @@ if ($groupedPatients) {
 
         foreach ($groupedPatients as $key => $group) {
             $idLookup = array_flip($group['patient_ids']);
-            $patientDetailsByGroup[$key] = array_values(array_filter(
+            $leistungen = array_values(array_filter(
                 $allDetails,
                 static fn(array $detail): bool => isset($idLookup[(int) $detail['patient_id']])
             ));
+            $patientDetailsByGroup[$key] = $leistungen;
+
+            $allDone = true;
+            $doctorNames = [];
+            $firstOpenDoctorId = 0;
+            foreach ($leistungen as $leistung) {
+                $doctorNames[] = $leistung['arzt_name'];
+                if ((int) ($leistung['erledigt'] ?? 0) === 0) {
+                    $allDone = false;
+                }
+            }
+            $doctorNames = array_values(array_unique(array_filter($doctorNames)));
+            if (count($doctorNames) === 1) {
+                $groupedPatients[$key]['arzt_name'] = $doctorNames[0];
+            } elseif (count($doctorNames) > 1) {
+                $groupedPatients[$key]['arzt_name'] = 'Mehrere Ärzte';
+            } else {
+                $groupedPatients[$key]['arzt_name'] = 'Unbekannt';
+            }
+
+            foreach ($leistungen as $leistung) {
+                if ((int) ($leistung['erledigt'] ?? 0) === 0) {
+                    $firstOpenDoctorId = (int) $leistung['arzt_id'];
+                    break;
+                }
+            }
+
+            $groupedPatients[$key]['arzt_id'] = $firstOpenDoctorId;
+            $groupedPatients[$key]['all_done'] = $allDone;
         }
     }
 }
@@ -405,7 +433,10 @@ if ($groupedPatients) {
                     <ul>
                         <?php $leistungen = $patientDetailsByGroup[$groupKey] ?? []; ?>
                         <?php foreach ($leistungen as $leistung): ?>
-                            <li><?= htmlspecialchars($leistung['datum']) ?> - <?= htmlspecialchars($leistung['bezeichnung']) ?> (<?= number_format((float) $leistung['preis'], 2, ',', '.') ?>€, <?= htmlspecialchars($leistung['kostentraeger']) ?>, Arzt: <?= htmlspecialchars($leistung['arzt_name']) ?>)</li>
+                            <li>
+                                <?= htmlspecialchars($leistung['datum']) ?> - <?= htmlspecialchars($leistung['bezeichnung']) ?>
+                                (<?= number_format((float) $leistung['preis'], 2, ',', '.') ?>€, <?= htmlspecialchars($leistung['kostentraeger']) ?>, Arzt: <?= htmlspecialchars($leistung['arzt_name']) ?>, Status: <?= ((int) ($leistung['erledigt'] ?? 0) === 1) ? 'Erledigt' : 'Offen' ?>)
+                            </li>
                         <?php endforeach; ?>
                     </ul>
                 </details>
