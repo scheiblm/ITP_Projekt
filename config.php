@@ -79,8 +79,7 @@ function initializeSchema(PDO $pdo): void
             CONSTRAINT fk_pl_arzt FOREIGN KEY (arzt_id) REFERENCES arzt(id) ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
-
-    // Kleines Schema-Migrations-Handling für bestehende Installationen.
+    
     if (!columnExists($pdo, 'patient_leistung', 'erledigt')) {
         $pdo->exec('ALTER TABLE patient_leistung ADD COLUMN erledigt TINYINT(1) NOT NULL DEFAULT 0');
     }
