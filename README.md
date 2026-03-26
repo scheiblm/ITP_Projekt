@@ -1,9 +1,4 @@
 # Praxis-Dashboard (PHP + MySQL)
-
-Dieses Projekt ist eine kleine Praxis-Webanwendung mit **PHP, JavaScript und MySQL**.  
-Sie enthält einen Login für Ärzte, ein Dashboard zur Patientenverwaltung, Leistungsverwaltung, Suche und Patienten-Transfer.
-
-
 ---
 
 ## 1) Projektstruktur
@@ -39,7 +34,7 @@ new PDO('mysql:host=bszw.ddns.net;dbname=wit12a_ITP_StiefScheibl;charset=utf8', 
 
 ## 3) Datenmodell / Tabellen
 
-Beim Start werden folgende Tabellen erzeugt:
+Beim Start werden folgende Tabellen erzeugt falls diese noch nicht vorhanden sind:
 
 ### `arzt`
 - `id` (PK)
@@ -104,8 +99,6 @@ Beim Start werden folgende Tabellen erzeugt:
 - Speichert den Arzt (Name + Passwort) in `arzt`.
 - Danach muss der Nutzer sich normal einloggen.
 
-> Hinweis: Aktuell werden Passwörter im Klartext gespeichert (so wie im bisherigen Code). Für Produktion sollte `password_hash()`/`password_verify()` verwendet werden.
-
 ---
 
 ## 6) Dashboard-Funktionen im Detail
@@ -140,11 +133,8 @@ Beim Start werden folgende Tabellen erzeugt:
 
 ## 7) JavaScript (`app.js`)
 
-Clientseitig gibt es bewusst nur wenig Logik:
 - Beim Formular mit Aktion `mark_done` erscheint eine `confirm()`-Abfrage.
 - Bei „Abbrechen“ wird das Absenden verhindert.
-
-So werden versehentliche Klicks auf „Erledigt“ reduziert.
 
 ---
 
@@ -157,35 +147,11 @@ So werden versehentliche Klicks auf „Erledigt“ reduziert.
 
 ---
 
-## 9) Sicherheit und bekannte Grenzen
 
-Dieses Projekt ist ein Lern-/Praxisprojekt. Aktuell wichtig zu wissen:
-
-1. **Passwörter im Klartext** (sollte auf Hashing umgestellt werden)
-2. Keine Rollen/Rechteverwaltung (nur eingeloggter Arzt-Kontext)
-3. Keine CSRF-Tokens
-4. Keine serverseitige Rate-Limitierung
-
-Für den produktiven Einsatz sollten diese Punkte ergänzt werden.
-
----
-
-## 10) Typische Erweiterungen
-
-- Passwort-Hashing (`password_hash` / `password_verify`)
-- CSRF-Schutz für alle POST-Formulare
-- Paginierung in Suchliste
-- Upload von Dokumenten/Befunden
-- Trennung von Logik und Views (MVC-Struktur)
-
----
-
-## 11) Kurz-Zusammenfassung
+## 9) Kurz-Zusammenfassung
 
 - `config.php` = DB + Schema
 - `index.php` = komplette App-Logik
 - `styles.css` = Darkmode-UI
 - `app.js` = kleine UX-Absicherung
 - `logout.php` = Session-Ende
-
-Damit kannst du die Anwendung direkt lokal starten und die wichtigsten Praxis-Workflows testen.
